@@ -33,7 +33,7 @@ Decoding a video is similarly straightforward. Simply create a `VideoReader` and
 vr, _ := NewVideoReader("input.mp4")
 
 for {
-    frame, err := reader.ReadFrame()
+    frame, err := vr.ReadFrame()
     if err == io.EOF {
         break
     }
