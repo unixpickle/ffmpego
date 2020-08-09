@@ -11,11 +11,10 @@ import (
 
 // A VideoWriter encodes a video file using ffmpeg.
 type VideoWriter struct {
-	command   *exec.Cmd
-	outPipe   *os.File
-	childPipe *os.File
-	width     int
-	height    int
+	command *exec.Cmd
+	outPipe *os.File
+	width   int
+	height  int
 }
 
 // NewVideoWriter creates a VideoWriter which is encoding
@@ -51,12 +50,12 @@ func newVideoWriter(path string, width, height int, fps float64) (*VideoWriter, 
 		outPipe.Close()
 		childPipe.Close()
 	}
+	childPipe.Close()
 	return &VideoWriter{
-		command:   cmd,
-		outPipe:   outPipe,
-		childPipe: childPipe,
-		width:     width,
-		height:    height,
+		command: cmd,
+		outPipe: outPipe,
+		width:   width,
+		height:  height,
 	}, nil
 }
 
@@ -85,7 +84,6 @@ func (v *VideoWriter) WriteFrame(img image.Image) error {
 // complete.
 func (v *VideoWriter) Close() error {
 	v.outPipe.Close()
-	defer v.childPipe.Close()
 	err := v.command.Wait()
 	if err != nil {
 		return errors.Wrap(err, "close video writer")
