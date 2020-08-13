@@ -12,7 +12,19 @@ func TestVideoReader(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
+	testVideoReader(t, reader, 24)
+}
 
+func TestVideoReaderResampled(t *testing.T) {
+	reader, err := NewVideoReaderResampled(filepath.Join("test_data", "test_video.mp4"), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	testVideoReader(t, reader, 40)
+}
+
+func testVideoReader(t *testing.T, reader *VideoReader, expectedFrames int) {
 	numFrames := 0
 	for {
 		frame, err := reader.ReadFrame()
@@ -26,7 +38,7 @@ func TestVideoReader(t *testing.T) {
 			t.Error("bad video bounds:", frame.Bounds())
 		}
 	}
-	if numFrames != 24 {
+	if numFrames != expectedFrames {
 		t.Errorf("incorrect number of frames: %d", numFrames)
 	}
 }

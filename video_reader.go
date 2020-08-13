@@ -1,6 +1,7 @@
 package ffmpego
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"io"
@@ -18,29 +19,51 @@ type VideoReader struct {
 }
 
 func NewVideoReader(path string) (*VideoReader, error) {
-	vr, err := newVideoReader(path)
+	vr, err := newVideoReader(path, -1)
 	if err != nil {
 		err = errors.Wrap(err, "read video")
 	}
 	return vr, err
 }
 
-func newVideoReader(path string) (*VideoReader, error) {
+// NewVideoReaderResampled creates a VideoReader that
+// automatically changes the input frame rate.
+func NewVideoReaderResampled(path string, fps float64) (*VideoReader, error) {
+	if fps <= 0 {
+		panic("FPS must be positive")
+	}
+	vr, err := newVideoReader(path, fps)
+	if err != nil {
+		err = errors.Wrap(err, "read video")
+	}
+	return vr, err
+}
+
+func newVideoReader(path string, resampleFPS float64) (*VideoReader, error) {
 	info, err := GetVideoInfo(path)
 	if err != nil {
 		return nil, err
+	}
+
+	if resampleFPS > 0 {
+		info.FPS = resampleFPS
 	}
 
 	inPipe, childPipe, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(
-		"ffmpeg",
+
+	args := []string{
 		"-i", path,
 		"-f", "rawvideo", "-pix_fmt", "rgb24",
-		"pipe:3",
-	)
+	}
+	if resampleFPS > 0 {
+		args = append(args, "-filter:v", fmt.Sprintf("fps=fps=%f", resampleFPS))
+	}
+	args = append(args, "pipe:3")
+
+	cmd := exec.Command("ffmpeg", args...)
 	cmd.ExtraFiles = []*os.File{childPipe}
 	if err := cmd.Start(); err != nil {
 		inPipe.Close()
