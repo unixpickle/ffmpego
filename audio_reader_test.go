@@ -12,8 +12,6 @@ func TestAudioReader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-
 	testAudioReader(t, reader, 8000)
 }
 
@@ -22,12 +20,15 @@ func TestAudioReaderResampled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-
 	testAudioReader(t, reader, 16000)
 }
 
 func testAudioReader(t *testing.T, reader *AudioReader, expectedSamples int) {
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	numSamples := 0
 	for {
 		chunk := make([]float64, rand.Intn(100)+100)

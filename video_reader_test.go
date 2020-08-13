@@ -11,7 +11,6 @@ func TestVideoReader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
 	testVideoReader(t, reader, 24)
 }
 
@@ -20,11 +19,15 @@ func TestVideoReaderResampled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
 	testVideoReader(t, reader, 40)
 }
 
 func testVideoReader(t *testing.T, reader *VideoReader, expectedFrames int) {
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	numFrames := 0
 	for {
 		frame, err := reader.ReadFrame()
