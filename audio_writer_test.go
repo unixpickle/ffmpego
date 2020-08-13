@@ -14,7 +14,8 @@ func TestAudioWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	aw, err := NewAudioWriter(filepath.Join(dir, "out.wav"), 44100)
+	outPath := filepath.Join(dir, "out.wav")
+	aw, err := NewAudioWriter(outPath, 44100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,5 +32,8 @@ func TestAudioWriter(t *testing.T) {
 	}
 	if err := aw.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatal("stat output file should work but got:", err)
 	}
 }

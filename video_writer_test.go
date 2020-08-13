@@ -14,7 +14,8 @@ func TestVideoWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(dir)
-	vw, err := NewVideoWriter(filepath.Join(dir, "out.mp4"), 50, 50, 12)
+	outPath := filepath.Join(dir, "out.mp4")
+	vw, err := NewVideoWriter(outPath, 50, 50, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,5 +31,8 @@ func TestVideoWriter(t *testing.T) {
 	}
 	if err := vw.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(outPath); err != nil {
+		t.Fatal("stat output file should work but got:", err)
 	}
 }
