@@ -14,6 +14,20 @@ func TestAudioReader(t *testing.T) {
 	}
 	defer reader.Close()
 
+	testAudioReader(t, reader, 8000)
+}
+
+func TestAudioReaderResampled(t *testing.T) {
+	reader, err := NewAudioReaderResampled(filepath.Join("test_data", "test_audio.wav"), 16000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	testAudioReader(t, reader, 16000)
+}
+
+func testAudioReader(t *testing.T, reader *AudioReader, expectedSamples int) {
 	numSamples := 0
 	for {
 		chunk := make([]float64, rand.Intn(100)+100)
@@ -30,7 +44,7 @@ func TestAudioReader(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if numSamples != 8000 {
+	if numSamples != expectedSamples {
 		t.Errorf("incorrect number of samples: %d", numSamples)
 	}
 }

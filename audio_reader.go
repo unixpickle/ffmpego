@@ -19,17 +19,33 @@ type AudioReader struct {
 }
 
 func NewAudioReader(path string) (*AudioReader, error) {
-	vr, err := newAudioReader(path)
+	vr, err := newAudioReader(path, -1)
 	if err != nil {
 		err = errors.Wrap(err, "read audio")
 	}
 	return vr, err
 }
 
-func newAudioReader(path string) (*AudioReader, error) {
+// NewAudioReaderResampled creates an AudioReader that
+// automatically changes the input frequency.
+func NewAudioReaderResampled(path string, frequency int) (*AudioReader, error) {
+	if frequency <= 0 {
+		panic("frequency must be positive")
+	}
+	vr, err := newAudioReader(path, frequency)
+	if err != nil {
+		err = errors.Wrap(err, "read audio")
+	}
+	return vr, err
+}
+
+func newAudioReader(path string, forceFrequency int) (*AudioReader, error) {
 	info, err := GetAudioInfo(path)
 	if err != nil {
 		return nil, err
+	}
+	if forceFrequency > 0 {
+		info.Frequency = forceFrequency
 	}
 
 	inPipe, childPipe, err := os.Pipe()
