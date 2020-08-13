@@ -38,7 +38,7 @@ func newAudioWriter(path string, frequency int) (*AudioWriter, error) {
 		// Audio parameters
 		"-probesize", "32", "-thread_queue_size", "60", "-i", "pipe:3",
 		// Output parameters
-		"-f", "wav", "-pix_fmt", "yuv420p", path,
+		"-pix_fmt", "yuv420p", path,
 	)
 	cmd.ExtraFiles = []*os.File{childPipe}
 	if err := cmd.Start(); err != nil {
