@@ -43,7 +43,8 @@ func newVideoWriter(path string, width, height int, fps float64) (*VideoWriter, 
 		"-probesize", "32", "-thread_queue_size", "10000", "-i", "pipe:3",
 		// Output parameters
 		"-c:v", "libx264", "-preset", "fast", "-crf", "18",
-		"-pix_fmt", "yuv420p", path,
+		"-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+		path,
 	)
 	cmd.ExtraFiles = []*os.File{childPipe}
 	if err := cmd.Start(); err != nil {
