@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"image/gif"
 	"os"
 
@@ -30,14 +32,75 @@ func main() {
 	}
 	fps := 1 / delay
 
-	bounds := gifImage.Image[0].Bounds()
+	bounds := BoundsForGIF(gifImage)
 	writer, err := ffmpego.NewVideoWriter(outputFile, bounds.Dx(), bounds.Dy(), fps)
 	essentials.Must(err)
 	defer func() {
 		essentials.Must(writer.Close())
 	}()
 
-	for _, frame := range gifImage.Image {
-		essentials.Must(writer.WriteFrame(frame))
+	FramesFromGIF(gifImage, func(img image.Image) {
+		essentials.Must(writer.WriteFrame(img))
+	})
+}
+
+func BoundsForGIF(g *gif.GIF) image.Rectangle {
+	result := g.Image[0].Bounds()
+	for _, frame := range g.Image {
+		result = result.Union(frame.Bounds())
+	}
+	return result
+}
+
+func FramesFromGIF(g *gif.GIF, f func(image.Image)) {
+	out := image.NewRGBA(BoundsForGIF(g))
+	previous := image.NewRGBA(BoundsForGIF(g))
+	for i, frame := range g.Image {
+		disposal := g.Disposal[i]
+		switch disposal {
+		case 0:
+			clearImage(out)
+			clearImage(previous)
+			drawImageWithBackground(out, frame, out)
+			drawImageWithBackground(previous, frame, previous)
+		case gif.DisposalNone:
+			drawImageWithBackground(out, frame, out)
+		case gif.DisposalPrevious:
+			drawImageWithBackground(out, frame, previous)
+		case gif.DisposalBackground:
+			bgColor := g.Config.ColorModel.(color.Palette)[g.BackgroundIndex]
+			fillImage(out, bgColor)
+			drawImageWithBackground(out, frame, out)
+		}
+		f(out)
+	}
+}
+
+func drawImageWithBackground(dst *image.RGBA, src, bg image.Image) {
+	b := src.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			px := src.At(x, y)
+			_, _, _, a := px.RGBA()
+			if a == 0 {
+				px = bg.At(x, y)
+			}
+			dst.Set(x, y, px)
+		}
+	}
+}
+
+func clearImage(dst *image.RGBA) {
+	for i := range dst.Pix {
+		dst.Pix[i] = 0
+	}
+}
+
+func fillImage(dst *image.RGBA, c color.Color) {
+	b := dst.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.Set(x, y, c)
+		}
 	}
 }
