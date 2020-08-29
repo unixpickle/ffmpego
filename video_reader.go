@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"io"
-	"os"
 	"os/exec"
 
 	"github.com/pkg/errors"
@@ -14,7 +13,7 @@ import (
 // A VideoReader decodes a video file using ffmpeg.
 type VideoReader struct {
 	command *exec.Cmd
-	inPipe  *os.File
+	reader  io.ReadCloser
 	info    *VideoInfo
 }
 
@@ -49,7 +48,7 @@ func newVideoReader(path string, resampleFPS float64) (*VideoReader, error) {
 		info.FPS = resampleFPS
 	}
 
-	inPipe, childPipe, err := os.Pipe()
+	stream, err := CreateChildStream(true)
 	if err != nil {
 		return nil, err
 	}
@@ -61,18 +60,22 @@ func newVideoReader(path string, resampleFPS float64) (*VideoReader, error) {
 	if resampleFPS > 0 {
 		args = append(args, "-filter:v", fmt.Sprintf("fps=fps=%f", resampleFPS))
 	}
-	args = append(args, "pipe:3")
+	args = append(args, stream.ResourceURL())
 
 	cmd := exec.Command("ffmpeg", args...)
-	cmd.ExtraFiles = []*os.File{childPipe}
+	cmd.ExtraFiles = stream.ExtraFiles()
 	if err := cmd.Start(); err != nil {
-		inPipe.Close()
-		childPipe.Close()
+		stream.Cancel()
+		return nil, err
 	}
-	childPipe.Close()
+	reader, err := stream.Connect()
+	if err != nil {
+		cmd.Process.Kill()
+		return nil, err
+	}
 	return &VideoReader{
 		command: cmd,
-		inPipe:  inPipe,
+		reader:  reader,
 		info:    info,
 	}, nil
 }
@@ -88,7 +91,7 @@ func (v *VideoReader) VideoInfo() *VideoInfo {
 // along with io.EOF.
 func (v *VideoReader) ReadFrame() (image.Image, error) {
 	buf := make([]byte, 3*v.info.Width*v.info.Height)
-	if _, err := io.ReadFull(v.inPipe, buf); err != nil {
+	if _, err := io.ReadFull(v.reader, buf); err != nil {
 		return nil, err
 	}
 	img := image.NewRGBA(image.Rect(0, 0, v.info.Width, v.info.Height))
@@ -112,7 +115,7 @@ func (v *VideoReader) ReadFrame() (image.Image, error) {
 func (v *VideoReader) Close() error {
 	// When we close the pipe, the subprocess should terminate
 	// (possibly with an error) because it cannot write.
-	v.inPipe.Close()
+	v.reader.Close()
 	v.command.Wait()
 	return nil
 }

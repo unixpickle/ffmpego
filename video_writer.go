@@ -3,7 +3,7 @@ package ffmpego
 import (
 	"fmt"
 	"image"
-	"os"
+	"io"
 	"os/exec"
 
 	"github.com/pkg/errors"
@@ -12,7 +12,7 @@ import (
 // A VideoWriter encodes a video file using ffmpeg.
 type VideoWriter struct {
 	command *exec.Cmd
-	outPipe *os.File
+	writer  io.WriteCloser
 	width   int
 	height  int
 }
@@ -28,7 +28,7 @@ func NewVideoWriter(path string, width, height int, fps float64) (*VideoWriter, 
 }
 
 func newVideoWriter(path string, width, height int, fps float64) (*VideoWriter, error) {
-	childPipe, outPipe, err := os.Pipe()
+	stream, err := CreateChildStream(false)
 	if err != nil {
 		return nil, err
 	}
@@ -40,21 +40,25 @@ func newVideoWriter(path string, width, height int, fps float64) (*VideoWriter, 
 		"-s", fmt.Sprintf("%dx%d", width, height),
 		"-pix_fmt", "rgb24", "-f", "rawvideo",
 		// Video parameters
-		"-probesize", "32", "-thread_queue_size", "10000", "-i", "pipe:3",
+		"-probesize", "32", "-thread_queue_size", "10000", "-i", stream.ResourceURL(),
 		// Output parameters
 		"-c:v", "libx264", "-preset", "fast", "-crf", "18",
 		"-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
 		path,
 	)
-	cmd.ExtraFiles = []*os.File{childPipe}
+	cmd.ExtraFiles = stream.ExtraFiles()
 	if err := cmd.Start(); err != nil {
-		outPipe.Close()
-		childPipe.Close()
+		stream.Cancel()
+		return nil, err
 	}
-	childPipe.Close()
+	writer, err := stream.Connect()
+	if err != nil {
+		cmd.Process.Kill()
+		return nil, err
+	}
 	return &VideoWriter{
 		command: cmd,
-		outPipe: outPipe,
+		writer:  writer,
 		width:   width,
 		height:  height,
 	}, nil
@@ -74,7 +78,7 @@ func (v *VideoWriter) WriteFrame(img image.Image) error {
 			data = append(data, uint8(r>>8), uint8(g>>8), uint8(b>>8))
 		}
 	}
-	_, err := v.outPipe.Write(data)
+	_, err := v.writer.Write(data)
 	if err != nil {
 		return errors.Wrap(err, "write frame")
 	}
@@ -84,7 +88,7 @@ func (v *VideoWriter) WriteFrame(img image.Image) error {
 // Close closes the video file and waits for encoding to
 // complete.
 func (v *VideoWriter) Close() error {
-	v.outPipe.Close()
+	v.writer.Close()
 	err := v.command.Wait()
 	if err != nil {
 		return errors.Wrap(err, "close video writer")

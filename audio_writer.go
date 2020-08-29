@@ -2,7 +2,7 @@ package ffmpego
 
 import (
 	"encoding/binary"
-	"os"
+	"io"
 	"os/exec"
 	"strconv"
 
@@ -12,7 +12,7 @@ import (
 // An AudioWriter encodes an audio file using ffmpeg.
 type AudioWriter struct {
 	command *exec.Cmd
-	outPipe *os.File
+	writer  io.WriteCloser
 }
 
 // NewAudioWriter creates a AudioWriter which is encoding
@@ -26,7 +26,7 @@ func NewAudioWriter(path string, frequency int) (*AudioWriter, error) {
 }
 
 func newAudioWriter(path string, frequency int) (*AudioWriter, error) {
-	childPipe, outPipe, err := os.Pipe()
+	stream, err := CreateChildStream(false)
 	if err != nil {
 		return nil, err
 	}
@@ -36,19 +36,23 @@ func newAudioWriter(path string, frequency int) (*AudioWriter, error) {
 		// Audio format
 		"-ar", strconv.Itoa(frequency), "-ac", "1", "-f", "s16le",
 		// Audio parameters
-		"-probesize", "32", "-thread_queue_size", "60", "-i", "pipe:3",
+		"-probesize", "32", "-thread_queue_size", "60", "-i", stream.ResourceURL(),
 		// Output parameters
 		"-pix_fmt", "yuv420p", path,
 	)
-	cmd.ExtraFiles = []*os.File{childPipe}
+	cmd.ExtraFiles = stream.ExtraFiles()
 	if err := cmd.Start(); err != nil {
-		outPipe.Close()
-		childPipe.Close()
+		stream.Cancel()
+		return nil, err
 	}
-	childPipe.Close()
+	writer, err := stream.Connect()
+	if err != nil {
+		cmd.Process.Kill()
+		return nil, err
+	}
 	return &AudioWriter{
 		command: cmd,
-		outPipe: outPipe,
+		writer:  writer,
 	}, nil
 }
 
@@ -60,7 +64,7 @@ func (v *AudioWriter) WriteSamples(samples []float64) error {
 	for i, x := range samples {
 		intData[i] = int16(x * (1<<15 - 1))
 	}
-	if err := binary.Write(v.outPipe, binary.LittleEndian, intData); err != nil {
+	if err := binary.Write(v.writer, binary.LittleEndian, intData); err != nil {
 		return errors.Wrap(err, "write samples")
 	}
 	return nil
@@ -69,7 +73,7 @@ func (v *AudioWriter) WriteSamples(samples []float64) error {
 // Close closes the audio file and waits for encoding to
 // complete.
 func (v *AudioWriter) Close() error {
-	v.outPipe.Close()
+	v.writer.Close()
 	err := v.command.Wait()
 	if err != nil {
 		return errors.Wrap(err, "close audio writer")

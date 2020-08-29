@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-	"os"
 	"os/exec"
 	"strconv"
 
@@ -14,7 +13,7 @@ import (
 // A AudioReader decodes an audio file using ffmpeg.
 type AudioReader struct {
 	command *exec.Cmd
-	inPipe  *os.File
+	reader  io.ReadCloser
 	info    *AudioInfo
 }
 
@@ -48,7 +47,7 @@ func newAudioReader(path string, forceFrequency int) (*AudioReader, error) {
 		info.Frequency = forceFrequency
 	}
 
-	inPipe, childPipe, err := os.Pipe()
+	stream, err := CreateChildStream(true)
 	if err != nil {
 		return nil, err
 	}
@@ -58,17 +57,21 @@ func newAudioReader(path string, forceFrequency int) (*AudioReader, error) {
 		"-f", "s16le",
 		"-ar", strconv.Itoa(info.Frequency),
 		"-ac", "1",
-		"pipe:3",
+		stream.ResourceURL(),
 	)
-	cmd.ExtraFiles = []*os.File{childPipe}
+	cmd.ExtraFiles = stream.ExtraFiles()
 	if err := cmd.Start(); err != nil {
-		inPipe.Close()
-		childPipe.Close()
+		stream.Cancel()
+		return nil, err
 	}
-	childPipe.Close()
+	reader, err := stream.Connect()
+	if err != nil {
+		cmd.Process.Kill()
+		return nil, err
+	}
 	return &AudioReader{
 		command: cmd,
-		inPipe:  inPipe,
+		reader:  reader,
 		info:    info,
 	}, nil
 }
@@ -88,7 +91,7 @@ func (a *AudioReader) AudioInfo() *AudioInfo {
 // At the end of decoding, io.EOF is returned.
 func (a *AudioReader) ReadSamples(out []float64) (int, error) {
 	buf := make([]byte, 2*len(out))
-	n, err := io.ReadFull(a.inPipe, buf)
+	n, err := io.ReadFull(a.reader, buf)
 	if err != nil {
 		if err == io.ErrUnexpectedEOF || err == io.EOF {
 			if n%2 == 0 {
@@ -115,7 +118,7 @@ func (a *AudioReader) ReadSamples(out []float64) (int, error) {
 func (a *AudioReader) Close() error {
 	// When we close the pipe, the subprocess should terminate
 	// (possibly with an error) because it cannot write.
-	a.inPipe.Close()
+	a.reader.Close()
 	a.command.Wait()
 	return nil
 }
