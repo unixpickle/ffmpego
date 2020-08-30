@@ -125,7 +125,7 @@ type ChildSocketStream struct {
 
 // NewChildSocketStream creates a ChildSocketStream.
 func NewChildSocketStream() (*ChildSocketStream, error) {
-	addr, err := net.ResolveTCPAddr("tcp", ":0")
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
 	if err != nil {
 		return nil, err
 	}
