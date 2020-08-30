@@ -148,6 +148,7 @@ func (c *ChildSocketStream) ResourceURL() string {
 
 func (c *ChildSocketStream) Connect() (io.ReadWriteCloser, error) {
 	if err := c.listener.SetDeadline(time.Now().Add(time.Second * 10)); err != nil {
+		c.listener.Close()
 		return nil, err
 	}
 	conn, err := c.listener.Accept()
