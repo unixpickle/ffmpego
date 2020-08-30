@@ -2,7 +2,10 @@ package ffmpego
 
 import (
 	"io"
+	"net"
 	"os"
+	"runtime"
+	"time"
 )
 
 // A ChildStream is a connection to an ffmpeg process.
@@ -52,8 +55,11 @@ type ChildStream interface {
 // If the reading flag is true, then the stream should be
 // read from. Otherwise it should be written to.
 func CreateChildStream(reading bool) (ChildStream, error) {
-	// TODO: support other stream types here.
-	return NewChildPipeStream(reading)
+	if runtime.GOOS == "windows" {
+		return NewChildSocketStream()
+	} else {
+		return NewChildPipeStream(reading)
+	}
 }
 
 // A ChildPipeStream uses a pipe to communicate with
@@ -97,6 +103,7 @@ func (c *ChildPipeStream) ResourceURL() string {
 
 func (c *ChildPipeStream) Connect() (io.ReadWriteCloser, error) {
 	if err := c.childPipe.Close(); err != nil {
+		c.parentPipe.Close()
 		return nil, err
 	}
 	return c.parentPipe, nil
@@ -105,4 +112,52 @@ func (c *ChildPipeStream) Connect() (io.ReadWriteCloser, error) {
 func (c *ChildPipeStream) Cancel() error {
 	c.childPipe.Close()
 	return c.parentPipe.Close()
+}
+
+// A ChildSocketStream uses a TCP socket to communicate
+// with subprocesses.
+//
+// This should be supported on all operating systems, but
+// some may prevent process from listening on sockets.
+type ChildSocketStream struct {
+	listener *net.TCPListener
+}
+
+// NewChildSocketStream creates a ChildSocketStream.
+func NewChildSocketStream() (*ChildSocketStream, error) {
+	addr, err := net.ResolveTCPAddr("tcp", ":0")
+	if err != nil {
+		return nil, err
+	}
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	return &ChildSocketStream{
+		listener: listener,
+	}, nil
+}
+
+func (c *ChildSocketStream) ExtraFiles() []*os.File {
+	return nil
+}
+
+func (c *ChildSocketStream) ResourceURL() string {
+	return "tcp://" + c.listener.Addr().String()
+}
+
+func (c *ChildSocketStream) Connect() (io.ReadWriteCloser, error) {
+	if err := c.listener.SetDeadline(time.Now().Add(time.Second * 10)); err != nil {
+		return nil, err
+	}
+	conn, err := c.listener.Accept()
+	c.listener.Close()
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+func (c *ChildSocketStream) Cancel() error {
+	return c.listener.Close()
 }
