@@ -27,25 +27,45 @@ func NewVideoWriter(path string, width, height int, fps float64) (*VideoWriter, 
 	return vw, err
 }
 
-func newVideoWriter(path string, width, height int, fps float64) (*VideoWriter, error) {
+// NewVideoWriterWithAudio creates a VideoWriter which
+// copies audio from an existing video or audio file.
+func NewVideoWriterWithAudio(path string, width, height int, fps float64, audioFile string) (*VideoWriter, error) {
+	vw, err := newVideoWriter(
+		path, width, height, fps,
+		// Copy audio from input file.
+		"-i", audioFile, "-c:a", "copy",
+		// Map video from first input, audio from second.
+		"-map", "0:v:0", "-map", "1:a:0?",
+	)
+	if err != nil {
+		err = errors.Wrap(err, "write video with audio")
+	}
+	return vw, err
+}
+
+func newVideoWriter(path string, width, height int, fps float64, extraFlags ...string) (*VideoWriter, error) {
 	stream, err := CreateChildStream(false)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(
-		"ffmpeg",
+	flags := []string{
 		"-y",
 		// Video format
 		"-r", fmt.Sprintf("%f", fps),
 		"-s", fmt.Sprintf("%dx%d", width, height),
 		"-pix_fmt", "rgb24", "-f", "rawvideo",
-		// Video parameters
+		// Video input and parameters
 		"-probesize", "32", "-thread_queue_size", "10000", "-i", stream.ResourceURL(),
+	}
+	flags = append(flags, extraFlags...)
+	flags = append(
+		flags,
 		// Output parameters
 		"-c:v", "libx264", "-preset", "fast", "-crf", "18",
 		"-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-		path,
 	)
+	flags = append(flags, path)
+	cmd := exec.Command("ffmpeg", flags...)
 	cmd.ExtraFiles = stream.ExtraFiles()
 	if err := cmd.Start(); err != nil {
 		stream.Cancel()
