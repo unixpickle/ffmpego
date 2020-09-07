@@ -16,6 +16,8 @@ import (
 	"github.com/unixpickle/ffmpego"
 )
 
+const MaxKernelSum = 0x800000
+
 func main() {
 	var blurRadius int
 	var blurSigma float64
@@ -52,7 +54,7 @@ func main() {
 	defer writer.Close()
 
 	log.Println("Copying and blurring frames...")
-	filter := NewGaussianKernel(blurRadius, float32(blurSigma))
+	filter := NewGaussianKernel(blurRadius, blurSigma)
 	for i := 0; true; i++ {
 		log.Printf("Blurring frame %d...", i+1)
 		frame, err := reader.ReadFrame()
@@ -66,18 +68,35 @@ func main() {
 
 type GaussianKernel struct {
 	Radius int
-	Data   []float32
+
+	// Data stores coefficients for a 1D gaussian, which
+	// can be applied in both axes to make a 2D gaussian.
+	Data []uint32
 }
 
-func NewGaussianKernel(radius int, sigma float32) *GaussianKernel {
+func NewGaussianKernel(radius int, sigma float64) *GaussianKernel {
 	res := &GaussianKernel{
 		Radius: radius,
-		Data:   make([]float32, 0, radius*2+1),
+		Data:   make([]uint32, radius*2+1),
 	}
+	floatGaussian := make([]float64, 0, radius*2+1)
 	for x := -radius; x <= radius; x++ {
-		intensity := math.Exp(-float64(x*x) / float64(sigma*sigma))
-		res.Data = append(res.Data, float32(intensity))
+		intensity := math.Exp(-float64(x*x) / (sigma * sigma))
+		floatGaussian = append(floatGaussian, intensity)
 	}
+
+	// Make sure we don't overflow uint32
+	var floatSum float64
+	for _, x := range floatGaussian {
+		for _, y := range floatGaussian {
+			floatSum += x * y
+		}
+	}
+	scale := math.Sqrt(float64(MaxKernelSum)/floatSum) * 0.9999
+	for i, x := range floatGaussian {
+		res.Data[i] = uint32(x * scale)
+	}
+
 	return res
 }
 
@@ -86,15 +105,11 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 	width := b.Dx()
 	height := b.Dy()
 
-	var colors [][3]float32
+	var colors [][3]uint32
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
-			colors = append(colors, [3]float32{
-				float32(r) / 0xffff,
-				float32(g) / 0xffff,
-				float32(b) / 0xffff,
-			})
+			colors = append(colors, [3]uint32{r >> 8, g >> 8, b >> 8})
 		}
 	}
 
@@ -113,12 +128,12 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 		wg.Wait()
 	}
 
-	sums := make([]float32, len(colors))
-	intermediate := make([][3]float32, len(colors))
+	sums := make([]uint32, len(colors))
+	intermediate := make([][3]uint32, len(colors))
 	mapY(func(y int) {
 		for x := 0; x < width; x++ {
-			var kernelSum float32
-			var colorSum [3]float32
+			var kernelSum uint32
+			var colorSum [3]uint32
 			for dy := -g.Radius; dy <= g.Radius; dy++ {
 				sumY := y + dy
 				if sumY >= 0 && sumY < height {
@@ -130,7 +145,7 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 					kernelSum += k
 				}
 			}
-			idx := x + y*b.Dx()
+			idx := x + y*width
 			intermediate[idx] = colorSum
 			sums[idx] = kernelSum
 		}
@@ -139,8 +154,8 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 	result := image.NewRGBA(image.Rect(0, 0, width, height))
 	mapY(func(y int) {
 		for x := 0; x < b.Dx(); x++ {
-			var kernelSum float32
-			var colorSum [3]float32
+			var kernelSum uint32
+			var colorSum [3]uint32
 			for dx := -g.Radius; dx <= g.Radius; dx++ {
 				sumX := x + dx
 				if sumX >= 0 && sumX < width {
@@ -156,9 +171,9 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 				colorSum[i] /= kernelSum
 			}
 			result.SetRGBA(x, y, color.RGBA{
-				R: uint8(colorSum[0] * 255.999),
-				G: uint8(colorSum[1] * 255.999),
-				B: uint8(colorSum[2] * 255.999),
+				R: uint8(colorSum[0]),
+				G: uint8(colorSum[1]),
+				B: uint8(colorSum[2]),
 				A: 0xff,
 			})
 		}
