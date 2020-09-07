@@ -105,7 +105,7 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 	width := b.Dx()
 	height := b.Dy()
 
-	var colors [][3]uint32
+	colors := make([][3]uint32, 0, width*height)
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
@@ -134,16 +134,16 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 		for x := 0; x < width; x++ {
 			var kernelSum uint32
 			var colorSum [3]uint32
-			for dy := -g.Radius; dy <= g.Radius; dy++ {
-				sumY := y + dy
-				if sumY >= 0 && sumY < height {
-					k := g.Data[dy+g.Radius]
-					c := colors[x+width*sumY]
+			colorIdx := x + width*(y-g.Radius)
+			for _, k := range g.Data {
+				if colorIdx >= 0 && colorIdx < len(colors) {
+					c := colors[colorIdx]
 					for i, x := range c {
 						colorSum[i] += x * k
 					}
 					kernelSum += k
 				}
+				colorIdx += width
 			}
 			idx := x + y*width
 			intermediate[idx] = colorSum
@@ -153,19 +153,21 @@ func (g *GaussianKernel) Filter(img image.Image) image.Image {
 
 	result := image.NewRGBA(image.Rect(0, 0, width, height))
 	mapY(func(y int) {
+		startIdx := y * width
+		endIdx := (y + 1) * width
 		for x := 0; x < b.Dx(); x++ {
 			var kernelSum uint32
 			var colorSum [3]uint32
-			for dx := -g.Radius; dx <= g.Radius; dx++ {
-				sumX := x + dx
-				if sumX >= 0 && sumX < width {
-					k := g.Data[dx+g.Radius]
-					c := intermediate[sumX+width*y]
+			colorIdx := (x - g.Radius) + y*width
+			for _, k := range g.Data {
+				if colorIdx >= startIdx && colorIdx < endIdx {
+					c := intermediate[colorIdx]
 					for i, x := range c {
 						colorSum[i] += x * k
 					}
-					kernelSum += k * sums[x+width*y]
+					kernelSum += k * sums[colorIdx]
 				}
+				colorIdx++
 			}
 			for i := range colorSum {
 				colorSum[i] /= kernelSum
